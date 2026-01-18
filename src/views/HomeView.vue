@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, computed } from 'vue';
+import { ref, reactive, computed, watch } from 'vue';
 
 const showModal = ref(false);
 const showInitiativeModal = ref(false);
@@ -46,8 +46,52 @@ const hitResult = computed(() => {
   return { text: `Miss (未命中) - Total: ${total}`, class: 'miss', isHit: false, isCrit: false };
 });
 
+// Action State Management
+const currentView = ref('selection'); // 'selection', 'attack', 'damage', 'other'
+const selectedActionId = ref(null);
+
+const actions = [
+  { id: 'attack', name: '攻击 (Attack)', icon: '⚔️', desc: 'Perform an attack roll against a target.' },
+  { id: 'cast', name: '施法 (Cast)', icon: '✨', desc: 'Cast a spell. (Spell lookup coming soon)' },
+  { id: 'dash', name: '疾走 (Dash)', icon: '🏃', desc: 'Gain extra movement for the current turn. (Speed x2)' },
+  { id: 'disengage', name: '撤离 (Disengage)', icon: '🛡️', desc: 'Movement does not provoke opportunity attacks.' },
+  { id: 'dodge', name: '回避 (Dodge)', icon: '💨', desc: 'Attackers have disadvantage. You have advantage on Dex saves.' },
+  { id: 'help', name: '协助 (Help)', icon: '🤝', desc: 'Grant advantage to an ally on their next ability check or attack.' },
+  { id: 'hide', name: '躲藏 (Hide)', icon: '🕵️', desc: 'Make a Dexterity (Stealth) check to become hidden.' },
+  { id: 'ready', name: '预备 (Ready)', icon: '⏱️', desc: 'Wait for a specific trigger to perform an action.' },
+  { id: 'search', name: '搜索 (Search)', icon: '🔍', desc: 'Make a Wisdom (Perception) or Intelligence (Investigation) check.' },
+  { id: 'use', name: '使用 (Use)', icon: '🎒', desc: 'Interact with an object or environment.' }
+];
+
+const selectAction = (id) => {
+  selectedActionId.value = id;
+};
+
+const confirmAction = () => {
+  if (!selectedActionId.value) {
+    alert('Please select an action first.');
+    return;
+  }
+  
+  if (selectedActionId.value === 'attack') {
+    currentView.value = 'attack';
+    // Reset hit calc state if needed
+    hitCalc.d20 = '';
+    // Auto-fill AC from selected target if available
+    if (selectedCardIndex.value !== null && topCards.value[selectedCardIndex.value]) {
+      hitCalc.ac = topCards.value[selectedCardIndex.value].ac || '';
+    }
+  } else {
+    currentView.value = 'other';
+  }
+};
+
+const backToSelection = () => {
+  currentView.value = 'selection';
+  selectedActionId.value = null;
+};
+
 // Damage Calculator State
-const showDamageCalc = ref(false);
 const damageCalc = reactive({
   baseDamage: '',
   bonusDamage: '',
@@ -70,7 +114,7 @@ const damageResult = computed(() => {
 
 const openDamageCalc = () => {
   if (hitResult.value && hitResult.value.isHit) {
-    showDamageCalc.value = true;
+    currentView.value = 'damage';
     damageCalc.baseDamage = '';
     damageCalc.bonusDamage = '';
     damageCalc.isCrit = hitResult.value.isCrit;
@@ -83,14 +127,14 @@ const applyDamage = () => {
     const currentHp = topCards.value[selectedCardIndex.value].hp;
     topCards.value[selectedCardIndex.value].hp = Math.max(0, currentHp - damage);
   } else {
-    alert('Please select a target unit (click a card) to apply damage.');
+    console.warn('Please select a target unit (click a card) to apply damage.');
     return;
   }
-  showDamageCalc.value = false;
+  currentView.value = 'attack'; // Return to attack check
 };
 
 const closeDamageCalc = () => {
-  showDamageCalc.value = false;
+  currentView.value = 'attack';
 };
 
 const initialFormState = {
@@ -124,6 +168,15 @@ const skillOptions = [
   '自然 (Nature)', '宗教 (Religion)', '驯兽 (Animal Handling)'
 ];
 
+const abilities = [
+  { key: 'str', label: 'STR' },
+  { key: 'dex', label: 'DEX' },
+  { key: 'con', label: 'CON' },
+  { key: 'int', label: 'INT' },
+  { key: 'wis', label: 'WIS' },
+  { key: 'cha', label: 'CHA' }
+];
+
 const toggleSkill = (card, skill) => {
   if (!card.skills) card.skills = [];
   const index = card.skills.indexOf(skill);
@@ -144,7 +197,7 @@ const openModal = () => {
 
 const editCard = () => {
   if (selectedCardIndex.value === null) {
-    alert('Please select a card to edit.');
+    console.warn('Please select a card to edit.');
     return;
   }
   isEditing.value = true;
@@ -168,7 +221,7 @@ const selectNextCard = () => {
 
 const deleteCard = () => {
   if (selectedCardIndex.value === null) {
-    alert('Please select a card to delete.');
+    console.warn('Please select a card to delete.');
     return;
   }
   
@@ -210,7 +263,7 @@ const deleteCard = () => {
 
 const confirmAdd = () => {
   if (formData.name.trim() === '') {
-    alert('Please enter a name.');
+    console.warn('Please enter a name.');
     return;
   }
   
@@ -219,7 +272,7 @@ const confirmAdd = () => {
     if (['name', 'initiative', 'avatar', 'faction'].includes(key)) continue;
     if (formData[key] === '') continue; // Allow empty fields during check, will handle specific logic later if needed
     if (!Number.isInteger(Number(formData[key]))) {
-      alert('Please enter valid integers for all numeric fields.');
+      console.warn('Please enter valid integers for all numeric fields.');
       return;
     }
   }
@@ -232,14 +285,14 @@ const confirmAdd = () => {
   if (isEditing.value && selectedCardIndex.value !== null) {
     Object.assign(topCards.value[selectedCardIndex.value], formData);
   } else {
-    topCards.value.push({ ...formData });
+    topCards.value.push({ ...formData, statuses: [] });
   }
   showModal.value = false;
 };
 
 const openInitiativeModal = () => {
   if (topCards.value.length === 0) {
-    alert('No cards available to set initiative.');
+    console.warn('No cards available to set initiative.');
     return;
   }
   initiativeValues.value = {};
@@ -253,7 +306,7 @@ const confirmInitiative = () => {
   // Validate initiative values
   for (const index in initiativeValues.value) {
     if (initiativeValues.value[index] === '' || !Number.isInteger(Number(initiativeValues.value[index]))) {
-      alert('Please enter valid integer initiative values for all cards.');
+      console.warn('Please enter valid integer initiative values for all cards.');
       return;
     }
   }
@@ -290,10 +343,129 @@ const quickAdd = () => {
     skillBonus: 0,
     proficiencyBonus: 2,
     speed: 30,
-    skills: []
+    skills: [],
+    statuses: []
   };
   topCards.value.push(defaultCard);
 };
+
+// Movement Modal State and Logic
+const showMovementModal = ref(false);
+const movementRemaining = ref(0);
+const movementMode = ref('normal');
+const movementValue = ref('');
+const movementModes = [
+  { id: 'normal', name: '正常' },
+  { id: 'climb', name: '攀爬' },
+  { id: 'crawl', name: '匍匐' },
+  { id: 'jump', name: '跳跃' },
+  { id: 'swim', name: '游泳' }
+];
+
+const openMovementModal = () => {
+  if (activeCardIndex.value === null || !topCards.value[activeCardIndex.value]) {
+    console.warn('No active unit selected.');
+    return;
+  }
+  movementMode.value = 'normal';
+  movementValue.value = '';
+  showMovementModal.value = true;
+};
+
+const confirmMovement = () => {
+  const val = Number(movementValue.value);
+  if (!Number.isFinite(val) || val < 0) {
+    console.warn('请输入有效的移动数值。');
+    return;
+  }
+  movementRemaining.value = Math.max(0, movementRemaining.value - val);
+};
+
+const closeMovementModal = () => {
+  showMovementModal.value = false;
+};
+
+const showStatusModal = ref(false);
+const selectedStatusId = ref('');
+const statusRounds = ref(1);
+const statusOptions = [
+  { id: 'blinded', name: '目盲' },
+  { id: 'charmed', name: '魅惑' },
+  { id: 'deafened', name: '耳聋' },
+  { id: 'exhaustion', name: '力竭' },
+  { id: 'frightened', name: '恐慌' },
+  { id: 'grappled', name: '受擒' },
+  { id: 'incapacitated', name: '失能' },
+  { id: 'invisible', name: '隐形' },
+  { id: 'paralyzed', name: '麻痹' },
+  { id: 'petrified', name: '石化' },
+  { id: 'poisoned', name: '中毒' },
+  { id: 'prone', name: '倒地' },
+  { id: 'restrained', name: '束缚' },
+  { id: 'stunned', name: '震慑' },
+  { id: 'unconscious', name: '昏迷' }
+];
+
+const openStatusModal = () => {
+  if (selectedCardIndex.value === null || !topCards.value[selectedCardIndex.value]) {
+    console.warn('请先选择一个单位。');
+    return;
+  }
+  if (!selectedStatusId.value && statusOptions.length > 0) {
+    selectedStatusId.value = statusOptions[0].id;
+  }
+  statusRounds.value = 1;
+  showStatusModal.value = true;
+};
+
+const confirmStatus = () => {
+  if (!selectedStatusId.value) {
+    console.warn('请选择一个状态。');
+    return;
+  }
+  const rounds = Number(statusRounds.value);
+  if (!Number.isInteger(rounds) || rounds <= 0) {
+    console.warn('请输入有效的轮数。');
+    return;
+  }
+  const target = topCards.value[selectedCardIndex.value];
+  if (!target.statuses) {
+    target.statuses = [];
+  }
+  const statusDef = statusOptions.find(s => s.id === selectedStatusId.value);
+  if (!statusDef) {
+    return;
+  }
+  const existingIndex = target.statuses.findIndex(s => s.id === statusDef.id);
+  if (existingIndex !== -1) {
+    const oldRounds = Number(target.statuses[existingIndex].rounds) || 0;
+    target.statuses[existingIndex].rounds = Math.max(oldRounds, rounds);
+  } else {
+    target.statuses.push({
+      id: statusDef.id,
+      name: statusDef.name,
+      rounds
+    });
+  }
+  showStatusModal.value = false;
+};
+
+watch(() => activeCardIndex.value, (idx) => {
+  if (idx === null || !topCards.value[idx]) {
+    movementRemaining.value = 0;
+    return;
+  }
+  const card = topCards.value[idx];
+  movementRemaining.value = Number(card.speed) || 0;
+  if (card.statuses && Array.isArray(card.statuses) && card.statuses.length > 0) {
+    card.statuses = card.statuses
+      .map(s => ({
+        ...s,
+        rounds: s.rounds - 1
+      }))
+      .filter(s => s.rounds >= 0);
+  }
+});
 </script>
 
 <template>
@@ -311,7 +483,11 @@ const quickAdd = () => {
           :class="{ 
             selected: index === selectedCardIndex, 
             active: index === activeCardIndex,
-            downed: card.hp <= 0
+            downed: card.hp <= 0,
+            'has-status': card.statuses && card.statuses.length,
+            'faction-friendly': card.faction === 'Friendly',
+            'faction-neutral': card.faction === 'Neutral',
+            'faction-hostile': card.faction === 'Hostile'
           }"
           @click="selectCard(index)"
         >
@@ -334,6 +510,19 @@ const quickAdd = () => {
                 ></div>
               </div>
             </div>
+            <div v-if="card.statuses && card.statuses.length" class="status-indicator">
+              状态: {{ card.statuses.length }}
+            </div>
+            <div v-if="card.statuses && card.statuses.length" class="status-list">
+              <div 
+                v-for="s in card.statuses" 
+                :key="s.id + '-' + s.name"
+                class="status-item"
+              >
+                <span class="status-name">{{ s.name }}</span>
+                <span class="status-rounds">({{ s.rounds }})</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -346,6 +535,8 @@ const quickAdd = () => {
           <button class="btn delete small-btn" @click="deleteCard" title="Delete Selected">🗑️</button>
           <button class="btn initiative small-btn" @click="openInitiativeModal" title="Set Initiative">Init</button>
           <button class="btn next small-btn" @click="selectNextCard" title="Next Turn">Next</button>
+          <button class="btn move small-btn" @click="openMovementModal" title="移动">移动</button>
+          <button class="btn status-add small-btn" @click="openStatusModal" title="状态添加">状态</button>
         </div>
       </div>
     </div>
@@ -382,54 +573,37 @@ const quickAdd = () => {
                 />
               </div>
             </div>
-            <div class="detail-stats editable-stats">
-              <div class="stat-item">
-                <span class="label">AC:</span>
+            <div class="core-stats">
+              <div class="core-stat core-stat-primary">
+                <span class="core-label">AC</span>
                 <input 
                   type="number" 
                   v-model.number="topCards[activeCardIndex].ac" 
-                  class="edit-input stat-input" 
+                  class="core-input" 
                 />
               </div>
-              <div class="stat-item">
-                <span class="label">Init:</span>
+              <div class="core-stat core-stat-primary">
+                <span class="core-label">INIT</span>
                 <input 
                   type="number" 
                   v-model.number="topCards[activeCardIndex].initiative" 
-                  class="edit-input stat-input" 
+                  class="core-input" 
                 />
               </div>
-            </div>
-            <div class="detail-attributes editable-attributes">
-              <div class="attr-row">
-                <span class="attr-label">STR:</span>
-                <input type="number" v-model.number="topCards[activeCardIndex].str" class="edit-input attr-input" />
-                <span class="mod-text">{{ getModifier(topCards[activeCardIndex].str) }}</span>
-              </div>
-              <div class="attr-row">
-                <span class="attr-label">DEX:</span>
-                <input type="number" v-model.number="topCards[activeCardIndex].dex" class="edit-input attr-input" />
-                <span class="mod-text">{{ getModifier(topCards[activeCardIndex].dex) }}</span>
-              </div>
-              <div class="attr-row">
-                <span class="attr-label">CON:</span>
-                <input type="number" v-model.number="topCards[activeCardIndex].con" class="edit-input attr-input" />
-                <span class="mod-text">{{ getModifier(topCards[activeCardIndex].con) }}</span>
-              </div>
-              <div class="attr-row">
-                <span class="attr-label">INT:</span>
-                <input type="number" v-model.number="topCards[activeCardIndex].int" class="edit-input attr-input" />
-                <span class="mod-text">{{ getModifier(topCards[activeCardIndex].int) }}</span>
-              </div>
-              <div class="attr-row">
-                <span class="attr-label">WIS:</span>
-                <input type="number" v-model.number="topCards[activeCardIndex].wis" class="edit-input attr-input" />
-                <span class="mod-text">{{ getModifier(topCards[activeCardIndex].wis) }}</span>
-              </div>
-              <div class="attr-row">
-                <span class="attr-label">CHA:</span>
-                <input type="number" v-model.number="topCards[activeCardIndex].cha" class="edit-input attr-input" />
-                <span class="mod-text">{{ getModifier(topCards[activeCardIndex].cha) }}</span>
+              <div
+                v-for="ability in abilities"
+                :key="'active-' + ability.key"
+                class="core-stat"
+              >
+                <span class="core-label">{{ ability.label }}</span>
+                <input
+                  type="number"
+                  v-model.number="topCards[activeCardIndex][ability.key]"
+                  class="core-input"
+                />
+                <span class="core-mod">
+                  {{ getModifier(topCards[activeCardIndex][ability.key]) }}
+                </span>
               </div>
             </div>
             <div class="detail-extras editable-extras">
@@ -482,10 +656,40 @@ const quickAdd = () => {
         <div v-else class="empty-state">No Active Unit</div>
       </div>
 
-      <!-- Center Panel: Hit Check & Damage Calculator -->
+      <!-- Center Panel: Action Selection & Calculators -->
       <div class="panel center-panel">
-        <template v-if="!showDamageCalc">
-          <h3>攻击检定</h3>
+        <!-- 1. Action Selection View -->
+        <template v-if="currentView === 'selection'">
+          <h3>Choose Action</h3>
+          <div class="action-grid">
+            <div 
+              v-for="action in actions" 
+              :key="action.id"
+              class="action-card"
+              :class="{ selected: selectedActionId === action.id }"
+              @click="selectAction(action.id)"
+            >
+              <div class="action-icon">{{ action.icon }}</div>
+              <div class="action-name">{{ action.name }}</div>
+            </div>
+          </div>
+          <div class="action-confirm-container">
+            <button 
+              class="btn confirm-action-btn" 
+              :disabled="!selectedActionId"
+              @click="confirmAction"
+            >
+              Confirm Action
+            </button>
+          </div>
+        </template>
+
+        <!-- 2. Attack Check View -->
+        <template v-else-if="currentView === 'attack'">
+          <h3>
+            <span class="back-btn-left" @click="backToSelection" title="Back to Actions">⬅</span>
+            攻击检定
+          </h3>
           <div class="hit-calculator">
             <div class="form-group-small">
               <label>d20 Roll (1-20):</label>
@@ -515,7 +719,8 @@ const quickAdd = () => {
           </div>
         </template>
         
-        <template v-else>
+        <!-- 3. Damage Calculator View -->
+        <template v-else-if="currentView === 'damage'">
           <h3>伤害计算 <span class="back-btn" @click="closeDamageCalc">↩</span></h3>
           <div class="damage-calculator">
             <div v-if="damageCalc.isCrit" class="crit-badge">Critical Hit! (Dice Doubled)</div>
@@ -533,6 +738,26 @@ const quickAdd = () => {
             </div>
             
             <button class="btn apply-dmg" @click="applyDamage">Done</button>
+          </div>
+        </template>
+
+        <!-- 4. Other Actions Placeholder -->
+        <template v-else-if="currentView === 'other'">
+           <h3>
+            <span class="back-btn-left" @click="backToSelection" title="Back to Actions">⬅</span>
+            Action Executed
+          </h3>
+          <div class="action-feedback">
+            <div class="feedback-icon">
+              {{ actions.find(a => a.id === selectedActionId)?.icon }}
+            </div>
+            <div class="feedback-text">
+              Performs <strong>{{ actions.find(a => a.id === selectedActionId)?.name }}</strong>
+            </div>
+            <p class="feedback-desc">
+              {{ actions.find(a => a.id === selectedActionId)?.desc }}
+            </p>
+            <button class="btn back-btn-wide" @click="backToSelection">New Action</button>
           </div>
         </template>
       </div>
@@ -569,54 +794,37 @@ const quickAdd = () => {
                 />
               </div>
             </div>
-            <div class="detail-stats editable-stats">
-              <div class="stat-item">
-                <span class="label">AC:</span>
+            <div class="core-stats">
+              <div class="core-stat core-stat-primary">
+                <span class="core-label">AC</span>
                 <input 
                   type="number" 
                   v-model.number="topCards[selectedCardIndex].ac" 
-                  class="edit-input stat-input" 
+                  class="core-input" 
                 />
               </div>
-              <div class="stat-item">
-                <span class="label">Init:</span>
+              <div class="core-stat core-stat-primary">
+                <span class="core-label">INIT</span>
                 <input 
                   type="number" 
                   v-model.number="topCards[selectedCardIndex].initiative" 
-                  class="edit-input stat-input" 
+                  class="core-input" 
                 />
               </div>
-            </div>
-            <div class="detail-attributes editable-attributes">
-              <div class="attr-row">
-                <span class="attr-label">STR:</span>
-                <input type="number" v-model.number="topCards[selectedCardIndex].str" class="edit-input attr-input" />
-                <span class="mod-text">{{ getModifier(topCards[selectedCardIndex].str) }}</span>
-              </div>
-              <div class="attr-row">
-                <span class="attr-label">DEX:</span>
-                <input type="number" v-model.number="topCards[selectedCardIndex].dex" class="edit-input attr-input" />
-                <span class="mod-text">{{ getModifier(topCards[selectedCardIndex].dex) }}</span>
-              </div>
-              <div class="attr-row">
-                <span class="attr-label">CON:</span>
-                <input type="number" v-model.number="topCards[selectedCardIndex].con" class="edit-input attr-input" />
-                <span class="mod-text">{{ getModifier(topCards[selectedCardIndex].con) }}</span>
-              </div>
-              <div class="attr-row">
-                <span class="attr-label">INT:</span>
-                <input type="number" v-model.number="topCards[selectedCardIndex].int" class="edit-input attr-input" />
-                <span class="mod-text">{{ getModifier(topCards[selectedCardIndex].int) }}</span>
-              </div>
-              <div class="attr-row">
-                <span class="attr-label">WIS:</span>
-                <input type="number" v-model.number="topCards[selectedCardIndex].wis" class="edit-input attr-input" />
-                <span class="mod-text">{{ getModifier(topCards[selectedCardIndex].wis) }}</span>
-              </div>
-              <div class="attr-row">
-                <span class="attr-label">CHA:</span>
-                <input type="number" v-model.number="topCards[selectedCardIndex].cha" class="edit-input attr-input" />
-                <span class="mod-text">{{ getModifier(topCards[selectedCardIndex].cha) }}</span>
+              <div
+                v-for="ability in abilities"
+                :key="'selected-' + ability.key"
+                class="core-stat"
+              >
+                <span class="core-label">{{ ability.label }}</span>
+                <input
+                  type="number"
+                  v-model.number="topCards[selectedCardIndex][ability.key]"
+                  class="core-input"
+                />
+                <span class="core-mod">
+                  {{ getModifier(topCards[selectedCardIndex][ability.key]) }}
+                </span>
               </div>
             </div>
             <div class="detail-extras editable-extras">
@@ -753,7 +961,7 @@ const quickAdd = () => {
 
   <div v-if="showInitiativeModal" class="modal-overlay">
     <div class="modal-content">
-      <h3>Set Initiative Values</h3>
+      <h3>Set Initiative Values(敏捷检定)</h3>
       <div v-for="(card, index) in topCards" :key="index" class="form-group">
         <label>{{ card.name }} (Initiative):</label>
         <input type="number" v-model.number="initiativeValues[index]" />
@@ -761,6 +969,52 @@ const quickAdd = () => {
       <div class="modal-actions">
         <button class="btn confirm" @click="confirmInitiative">Sort</button>
         <button class="btn cancel" @click="showInitiativeModal = false">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div v-if="showStatusModal" class="modal-overlay">
+    <div class="modal-content">
+      <h3>状态添加</h3>
+      <div class="form-group">
+        <label>状态:</label>
+        <select v-model="selectedStatusId" class="form-select">
+          <option v-for="s in statusOptions" :key="s.id" :value="s.id">
+            {{ s.name }}
+          </option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>轮数:</label>
+        <input type="number" v-model.number="statusRounds" min="1" />
+      </div>
+      <div class="modal-actions">
+        <button class="btn confirm" @click="confirmStatus">确认</button>
+        <button class="btn cancel" @click="showStatusModal = false">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <div v-if="showMovementModal" class="modal-overlay">
+    <div class="modal-content">
+      <h3>移动</h3>
+      <div class="form-group">
+        <label>剩余移动点数 (ft):</label>
+        <div class="damage-total"><span class="total-val">{{ movementRemaining }}</span></div>
+      </div>
+      <div class="form-group">
+        <label>移动方式:</label>
+        <select v-model="movementMode" class="form-select">
+          <option v-for="m in movementModes" :key="m.id" :value="m.id">{{ m.name }}</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>本次移动数值 (ft):</label>
+        <input type="number" v-model.number="movementValue" />
+      </div>
+      <div class="modal-actions">
+        <button class="btn confirm" @click="confirmMovement">确认扣减</button>
+        <button class="btn cancel" @click="closeMovementModal">完成</button>
       </div>
     </div>
   </div>
@@ -822,18 +1076,23 @@ const quickAdd = () => {
 }
 
 .card {
-  background-color: white;
+  background: linear-gradient(135deg, #ffffff, #f5f5f5);
   border-radius: 8px;
   padding: 10px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-  min-width: 150px;
-  width: 150px;
+  min-width: 170px;
+  width: 170px;
   font-size: 0.9em;
   flex-shrink: 0;
   cursor: pointer;
   border: 2px solid transparent;
-  transition: border-color 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.1s;
   position: relative;
+}
+
+.card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.25);
 }
 
 .card.selected {
@@ -848,6 +1107,22 @@ const quickAdd = () => {
 .card.selected.active {
   border-color: #9C27B0; /* Active state visual priority */
   box-shadow: 0 0 0 2px #2196F3, 0 0 12px rgba(156, 39, 176, 0.6);
+}
+
+.card.has-status {
+  box-shadow: 0 0 0 2px rgba(255, 152, 0, 0.4), 0 3px 8px rgba(0, 0, 0, 0.25);
+}
+
+.card.faction-friendly {
+  background: linear-gradient(135deg, #e8f5e9, #c8e6c9);
+}
+
+.card.faction-neutral {
+  background: linear-gradient(135deg, #eceff1, #e0e0e0);
+}
+
+.card.faction-hostile {
+  background: linear-gradient(135deg, #ffebee, #ffcdd2);
 }
 
 .card-name {
@@ -867,6 +1142,64 @@ const quickAdd = () => {
 
 .card-hp-container {
   width: 100%;
+}
+
+.status-indicator {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  font-size: 0.75em;
+  color: #fff;
+  background: linear-gradient(135deg, #ff9800, #ffc107);
+  border-radius: 10px;
+  padding: 2px 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.status-indicator::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: #fff;
+  opacity: 0.9;
+}
+
+.status-list {
+  display: none;
+  position: absolute;
+  left: 50%;
+  bottom: -4px;
+  transform: translateX(-50%) translateY(100%);
+  background-color: #263238;
+  color: #fff;
+  padding: 6px 8px;
+  border-radius: 4px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  font-size: 0.75em;
+  min-width: 120px;
+  z-index: 10;
+}
+
+.card:hover .status-list {
+  display: block;
+}
+
+.status-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.status-name {
+  font-weight: bold;
+}
+
+.status-rounds {
+  opacity: 0.8;
 }
 
 .hp-text {
@@ -916,36 +1249,53 @@ const quickAdd = () => {
 
 .editable-header {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: center;
   gap: 8px;
-  margin-bottom: 15px;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #eee;
 }
 
 .name-input {
   font-weight: bold;
-  font-size: 1.2em;
-  text-align: center;
-  width: 100%;
+  font-size: 1.1em;
+  text-align: left;
+  flex: 2;
+  min-width: 0;
+  border-bottom: none;
+  margin-bottom: 0;
 }
 
 .faction-select {
   text-align: center;
-  margin: 0 auto;
-  display: block;
+  margin: 0;
   cursor: pointer;
+  flex: 1;
+  font-size: 0.9em;
+  min-width: 0;
 }
 
 .hp-edit-container {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 5px;
+  justify-content: flex-end;
+  gap: 3px;
+  margin-top: 0;
+  font-size: 1em;
+  flex: 0 0 auto;
+}
+
+.hp-edit-container .label {
+  display: none; /* Hide label to save space */
 }
 
 .hp-input {
-  width: 50px;
+  width: 40px;
   text-align: center;
   font-weight: bold;
+  font-size: 0.95em;
+  padding: 2px 0;
 }
 
 .editable-stats {
@@ -992,14 +1342,14 @@ const quickAdd = () => {
 }
 
 /* Compact Attribute Grid (Stat Boxes) */
-.editable-attributes {
+.core-stats {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  margin-bottom: 15px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 12px;
 }
 
-.attr-row {
+.core-stat {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1007,41 +1357,49 @@ const quickAdd = () => {
   background-color: #ffffff;
   border: 1px solid #e0e0e0;
   border-radius: 6px;
-  padding: 5px;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  padding: 4px 3px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+  min-width: 0;
 }
 
-.attr-label {
-  font-size: 0.75em;
+.core-stat-primary {
+  border-color: #2196F3;
+  box-shadow: 0 0 0 1px rgba(33, 150, 243, 0.15);
+}
+
+.core-label {
+  font-size: 0.7em;
   font-weight: bold;
   color: #666;
   text-transform: uppercase;
+  letter-spacing: 0.03em;
   margin-bottom: 2px;
-  width: auto; /* Reset fixed width */
 }
 
-.attr-input {
+.core-input {
   width: 100%;
+  max-width: 48px;
   text-align: center;
-  font-size: 1.2em;
+  font-size: 1.05em;
   font-weight: bold;
   color: #333;
   border: none;
   border-bottom: 2px solid #eee;
   background: transparent;
-  padding: 2px 0;
+  padding: 1px 0 0;
 }
 
-.attr-input:focus {
+.core-input:focus {
   border-color: #2196F3;
   outline: none;
 }
 
-.mod-text {
-  font-size: 0.85em;
+.core-mod {
+  font-size: 0.75em;
   color: #888;
-  margin-top: 2px;
+  margin-top: 1px;
   font-weight: bold;
+  line-height: 1.2;
 }
 
 /* Compact Extras Grid */
@@ -1084,17 +1442,7 @@ const quickAdd = () => {
   margin-bottom: 10px;
   padding-bottom: 10px;
 }
-
-.name-input {
-  font-size: 1.3em;
-  margin-bottom: 5px;
-  border-bottom: 1px solid #eee;
-}
-
-.hp-edit-container {
-  margin-top: 5px;
-  font-size: 1.1em;
-}
+/* Removed old .name-input and .hp-edit-container styles from here to avoid conflicts */
 
 .hp-input {
   width: 60px;
@@ -1410,6 +1758,16 @@ const quickAdd = () => {
   color: white;
 }
 
+.status-add {
+  background-color: #795548;
+  color: white;
+}
+
+.move {
+  background-color: #009688;
+  color: white;
+}
+
 /* .bottom removed */
 
 .modal-overlay {
@@ -1602,6 +1960,114 @@ const quickAdd = () => {
   border-color: #4CAF50;
   font-weight: bold;
   box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+/* Action Grid Styles */
+.action-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  overflow-y: auto;
+  max-height: 300px;
+  padding: 2px;
+}
+
+.action-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background-color: white;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 10px 5px;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: center;
+}
+
+.action-card:hover {
+  background-color: #f5f5f5;
+  border-color: #ccc;
+}
+
+.action-card.selected {
+  border-color: #2196F3;
+  background-color: #e3f2fd;
+  box-shadow: 0 0 0 2px rgba(33, 150, 243, 0.3);
+}
+
+.action-icon {
+  font-size: 1.5em;
+  margin-bottom: 5px;
+}
+
+.action-name {
+  font-size: 0.8em;
+  font-weight: bold;
+  color: #444;
+}
+
+.action-confirm-container {
+  margin-top: 15px;
+}
+
+.confirm-action-btn {
+  width: 100%;
+  padding: 10px;
+  background-color: #2196F3;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.confirm-action-btn:disabled {
+  background-color: #ccc;
+  cursor: not-allowed;
+}
+
+.back-btn-left {
+  cursor: pointer;
+  float: left;
+  margin-right: 10px;
+  font-size: 1.2em;
+}
+
+/* Feedback View Styles */
+.action-feedback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 20px;
+  text-align: center;
+}
+
+.feedback-icon {
+  font-size: 3em;
+  margin-bottom: 10px;
+}
+
+.feedback-text {
+  font-size: 1.1em;
+  margin-bottom: 10px;
+  color: #333;
+}
+
+.feedback-desc {
+  color: #777;
+  font-size: 0.9em;
+  margin-bottom: 20px;
+  font-style: italic;
+}
+
+.back-btn-wide {
+  width: 100%;
+  background-color: #607D8B;
+  color: white;
 }
 
 </style>
